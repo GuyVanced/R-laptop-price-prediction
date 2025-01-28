@@ -1,0 +1,939 @@
+---
+title: "Laptop Price Prediction"
+output:
+  html_document: default
+  word_document: default
+date: "2023-10-02"
+---
+
+Import all the necessary libraries
+
+```{r}
+library(knitr)
+library(tidyverse)
+library(GGally)
+library(ggplot2)
+library(randomForest)
+library(caret)
+library(dplyr)
+library(corrplot)
+library(caTools)
+library(caret)
+library(e1071)
+library(rpart)
+library(randomForest)
+library(MASS)
+library(xgboost)
+library(scales)
+
+library(car)
+```
+
+Load the laptop dataset
+
+```{r}
+dataset <- read.csv("laptop_data.csv")
+kable(head(dataset))
+
+```
+
+```{r}
+view(dataset)
+```
+
+
+For general information about the dataset
+
+```{r}
+dim(dataset)
+glimpse(dataset)
+```
+
+To see if there are any duplicate records 
+
+```{r}
+cat(sum(duplicated(dataset)))
+```
+
+
+Check if there are any null/NA values in our dataset
+```{r}
+anyNA(dataset)
+```
+
+Check the first 6 rows of the dataset for general information
+
+```{r}
+kable(head(dataset))
+```
+
+Lets view the statistical analysis of the numerical columns
+
+```{r}
+summary(dataset)
+```
+
+
+Lets clean the columns RAM and weight becuase they are necessary for our analysis
+```{r}
+dataset$Ram <- gsub(pattern = "GB", replacement = "", x = dataset$Ram)
+dataset$Weight <- gsub(pattern = "kg", replacement = "", x = dataset$Weight)
+```
+
+Changing Ram and weight column into numeric 
+
+```{r}
+dataset$Ram <- as.integer(dataset$Ram)
+dataset$Weight <- as.double(dataset$Weight)
+```
+
+Changing the price column from INR into NPR by applying the exchange rate : 1INR = 1.6 NPR
+```{r}
+dataset$Price = dataset$Price * 1.6
+```
+
+EDA
+
+lets visualize the distribution of price
+
+```{r}
+ggplot(data = dataset, aes(x = Price)) +
+  geom_histogram(binwidth = 7500, fill = 'blue', color = "black") +
+  labs(title = 'Distribution of Price', x = 'Price') + 
+  scale_x_continuous(labels = scales::comma)
+  
+```
+
+
+Lets see the count plot of the laptop company
+
+```{r}
+ggplot(data = dataset) +
+  geom_bar(mapping = aes(x = Company, fill = Company)) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+```
+
+Lets see which company laptops are more expensive
+
+```{r}
+ggplot(dataset,
+       aes(x = factor(Company),
+           y = Price,
+           fill = Price,
+           colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs(title = "Company vs Price", x = "Company", y="Price")+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+As we can see from the plot, laptops from Razer are more expensive comparatively
+
+Lets see the types that the laptops can be categorized into
+
+```{r}
+ggplot(dataset, aes(x = TypeName, fill = TypeName)) +
+  geom_bar() +
+  labs(title = 'Count of Laptop Types', x = 'Type of laptop', y = 'Count') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+```
+
+Lets see the price distribution among the types of laptops
+
+```{r}
+ggplot(dataset, aes(x = factor(TypeName), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Type vs Price", x = "Type of laptop", y = "Price") +
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)
+```
+
+```{r}
+hist(dataset$Inches, main='Distribution of Laptop Size', xlab='Inches', col='red', breaks=12)
+```
+
+```{r}
+ggplot(dataset, aes(x = factor(Inches), y = Price, fill = Price, colour = Price)) +
+  labs(title = "Inches vs Price" ,x = "Screensize in inches", y = "Price") + 
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)
+```
+
+Lets analyse the screen resolution column
+
+```{r}
+sum(duplicated(dataset$ScreenResolution))
+
+unique(dataset$ScreenResolution)
+```
+Lets fetch the touchscreen data from the dataset
+
+```{r}
+dataset$touchscreen <- ifelse(grepl("Touchscreen", dataset$ScreenResolution), 1, 0)
+```
+
+Visualizing the number of laptops that have touchscreen
+
+```{r}
+
+ggplot(dataset, aes(x = factor(touchscreen), fill = factor(touchscreen))) +
+  geom_bar() +
+  labs(title = 'Number of TouchScreen Laptops', x = 'TouchScreen', y = 'No. of Occurrences') +
+  
+  theme_minimal()
+
+```
+
+
+Lets see the relation between touchscreen and price of the laptop
+
+```{r}
+
+ggplot(dataset, aes(x = factor(touchscreen), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title= "Touchscreen vs Price", x= "TouchScreen", "Price" )+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+  scale_color_continuous(labels = scales::comma)
+  
+```
+
+
+Lets fetch IPS Panel from the screen resolution column
+
+```{r}
+dataset$IPS <- ifelse(grepl("IPS Panel", dataset$ScreenResolution), 1, 0)
+```
+
+
+Lets visualize the number of laptops with IPS Panel
+
+
+```{r}
+
+  barplot(table(dataset$IPS),
+          main='Number of IPS Panel laptop',
+          ylab = "Number",
+          xlab = "IPS Panel",
+          breaks=12,
+          col = "blue")
+
+
+```
+
+```{r}
+# Relationship between IPS and Price
+ggplot(dataset, aes(x = factor(IPS), y = Price, fill = Price)) +
+  labs(title = "IPS Panel vs Price", x = "IPS Panel", y = "Price") + 
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)+
+  geom_bar(stat = "identity", position = "dodge")
+```
+
+
+```{r}
+res <- strsplit(dataset$ScreenResolution, "x", fixed = TRUE)
+head(res)
+
+```
+
+
+```{r}
+dataset$X_res <- sapply(res, function(x) x[1])
+dataset$Y_res <- sapply(res, function(x) x[2])
+head(dataset)
+```
+
+
+```{r}
+dataset$X_res <- gsub(",", "", dataset$X_res)
+dataset$X_res <- as.numeric(regmatches(dataset$X_res, regexpr("\\d+\\.?\\d+", dataset$X_res)))
+glimpse(dataset) 
+```
+
+
+```{r}
+# X and Y res are char dtype so need to convert into numeric dtype
+dataset$Y_res <- as.numeric(dataset$Y_res)
+glimpse(dataset)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+# we can see that inches do not have a strong correlation, but X and Y-axis resolution do,
+# so we can take advantage of this and convert these three columns to a single column 
+# known as Pixel per inches (PPI). 
+dataset$ppi <- (((dataset$X_res^2) + (dataset$Y_res^2))^0.5) / as.numeric(dataset$Inches)
+```
+
+```{r}
+
+# Drop the extra columns which are not helpful our price prediction
+# X','X_res', 'Y_res', 'Inches', 'ScreenResolution'
+dataset <- dataset[, !(names(dataset) %in% c('X','X_res', 'Y_res', 'Inches', 'ScreenResolution'))]
+glimpse(dataset)
+```
+
+
+```{r}
+# Now, CPU column, does it affect Price?
+unique(dataset$Cpu)
+```
+
+
+```{r}
+dataset$CpuName <- sapply(dataset$Cpu, function(x) {
+  words <- unlist(strsplit(x, " "))
+  if (length(words) >= 3) {
+    paste0(words[1:3], collapse = " ")
+  } else {
+    paste0(words, collapse = " ")  # Use all available words if less than 3
+  }
+})
+```
+
+
+```{r}
+fetch_processor <- function(text) {
+  if (text == 'Intel Core i7' || text == 'Intel Core i5' || text == 'Intel Core i3') {
+    return(text)
+  } else {
+    if (strsplit(text, " ")[[1]][1] == 'Intel') {
+      return('Other Intel Processor')
+    } else {
+      return('AMD Processor')
+    }
+  }
+}
+```
+
+
+```{r}
+dataset$Cpu_brand <- sapply(dataset$CpuName, fetch_processor)
+```
+
+
+```{r}
+#barplot(table(dataset$Cpu_brand), main='Number of CPU brand',ylab = "Count",xlab = "CPU brand", col='blue', breaks=12)
+# Intel i7 and i5 are the most in the dataset.
+ggplot(dataset, aes(x = Cpu_brand, fill = Cpu_brand)) +
+  geom_bar() +
+  labs(title = 'Count of Unique TypeName Values', x = 'CPU specs', y = 'Count') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+table(dataset$Cpu_brand)
+```
+
+
+```{r}
+# Will price vary based on cpu processor?
+
+# Relationship between Cpu brand and Price
+ggplot(dataset, aes(x = factor(Cpu_brand), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Price vs CPU brand", x = "CPU brand", y = "Price")+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)
+# As, Intel Core i7 have high price than i5,i3,AMD processor.
+# Also, the AMD and i5 have almost same range of Price.
+# So, we can say, Price will vary according to Cpu processor.
+```
+
+
+```{r}
+# Drop Cpu and Cpu Name column
+dataset <- dataset[, !(names(dataset) %in% c('Cpu', 'CpuName'))]
+glimpse(dataset)
+```
+
+
+```{r}
+# What about RAM vs Price?
+
+barplot(table(dataset$Ram), main='Distribution of RAM according to memory size',ylab = "Count",xlab = "RAM", col='blue', breaks=12)
+# Laptop with 8 GB rams are the most in the dataset. 
+```
+
+```{r}
+# Relationship between Price and RAM
+ggplot(dataset, aes(x = factor(Ram), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title = "RAM size vs Price",x= "RAM size", y = "Price")+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+  scale_color_continuous(labels = scales::comma)
+# here, we can see 64 GB RAM price less than 32 GB RAM.
+# So, size of high RAM doesn't mean high price.
+```
+
+
+
+```{r}
+head(dataset$Memory)
+# dataset$Memory # lots of information 
+unique(dataset$Memory) # what are the unique one - 39 chan
+table(dataset$Memory) # value count
+```
+
+
+```{r}
+# Feature Engineering
+
+# many categories and some only have 1 (difficult to prediction)
+# some with both ssd and hdd, some have only ssd, some have hybrid, flash storage.
+# so, we separate the value in 4 column - 1. Hard drive 2. SSD 3. Flash Storage, 4. Hybrid
+
+dataset$Memory <- gsub("\\.0", "", as.character(dataset$Memory))
+dataset$Memory <- gsub("GB", "", dataset$Memory)
+dataset$Memory <- gsub("TB", "000", dataset$Memory)
+```
+
+
+```{r}
+dataset = dataset %>%
+  separate(Memory, into = c("first", "second"), sep = "\\+", fill = "right") %>%
+  mutate(first = str_trim(first),
+         second = str_trim(second))
+```
+
+
+```{r}
+# Indicator variable for each column
+
+dataset = dataset %>%
+  mutate(Layer1HDD = if_else(str_detect(first, "HDD"), 1, 0),
+         Layer1SSD = if_else(str_detect(first, "SSD"), 1, 0),
+         Layer1Hybrid = if_else(str_detect(first, "Hybrid"), 1, 0),
+         Layer1Flash_Storage = if_else(str_detect(first, "Flash Storage"), 1, 0),
+         first = as.integer(gsub("\\D", "", first)),
+         second = as.integer(gsub("\\D", "", second)),
+         second = if_else(is.na(second), 0, second),
+         Layer2HDD = if_else(str_detect(second, "HDD"), 1, 0),
+         Layer2SSD = if_else(str_detect(second, "SSD"), 1, 0),
+         Layer2Hybrid = if_else(str_detect(second, "Hybrid"), 1, 0),
+         Layer2Flash_Storage = if_else(str_detect(second, "Flash Storage"), 1, 0))
+
+view(dataset)
+head(dataset)
+```
+
+
+```{r}
+# Calculate HDD, SDD, Hybrid and Flash_Storage
+dataset = dataset %>%
+  mutate(HDD = first * Layer1HDD + second * Layer2HDD,
+         SSD = first * Layer1SSD + second * Layer2SSD,
+         Hybrid = first * Layer1Hybrid + second * Layer2Hybrid,
+         Flash_Storage = first * Layer1Flash_Storage + second * Layer2Flash_Storage)
+```
+
+
+```{r}
+# remove unneccesary column for our dataset
+dataset = subset(dataset, select = -c(first, second, Layer1HDD, Layer1SSD, Layer1Hybrid, Layer1Flash_Storage, Layer2HDD, Layer2SSD, Layer2Hybrid, Layer2Flash_Storage))
+
+```
+
+```{r}
+column_to_compare <- dataset$Price
+correlations <- sapply(dataset[sapply(dataset, is.numeric)], function(x) cor(x, column_to_compare))
+correlations
+```
+
+```{r}
+# If we see correlation of Price with Hybrid and Flash_Stroage doesn't have less correlation.
+# So, we drop this two column
+
+dataset <- dataset[, !(names(dataset) %in% c("Hybrid","Flash_Storage"))]
+view(dataset)
+```
+
+
+```{r}
+# GPU Column
+table(dataset$Gpu)
+# Many different graphics card information, but we only select brand name of
+# particular graphics card
+
+```
+
+
+```{r}
+dataset$Gpubrand <- sapply(dataset$Gpu, function(x) {strsplit(x, " ")[[1]][1]})
+table(dataset$Gpubrand)
+dataset <- dataset[dataset$`Gpubrand` != 'ARM', ] # we don't need GPU ARM only brand name.
+table(dataset$Gpubrand)
+```
+
+
+```{r}
+barplot(table(dataset$Gpubrand), main='count of GPU',ylab = "Count",xlab = "GPU", col='blue', breaks=12)
+# Intel GPU are most in dataset.
+```
+
+
+```{r}
+# Relationship between GPU and Price
+ggplot(dataset, aes(x = factor(Gpubrand), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title = "GPU vs Price",x="GPU", y = "Price")+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+  scale_color_continuous(labels = scales::comma)
+# Nvidia GPU are much expansive than Intel and AMD
+
+```
+
+
+```{r}
+# Drop GPU column
+dataset <- dataset[, !(names(dataset) %in% c('Gpu'))]
+head(dataset)
+```
+
+
+```{r}
+# Operating System
+
+table(dataset$OpSys) 
+# we can see, there is Mac OS x, MacOs | Windows 10 , Windows 10s
+# To make easy, we keep all Mac categories at one, same to windows
+cat_os <- function(os) {
+  if (os == 'Windows 10' || os == 'Windows 7' || os == 'Windows 10 S') {
+    return('Windows')
+  } else if (os == 'Mac OS X' || os == 'macOS') {
+    return('Mac')
+  } else {
+    return('others/NO OS/Linux')
+  }
+}
+```
+
+
+```{r}
+dataset$OS <- sapply(dataset$OpSys, cat_os)
+head(dataset)
+table(dataset$OS) 
+```
+
+
+```{r}
+# Drop OpSys column
+dataset <- dataset[, !(names(dataset) %in% c('OpSys'))]
+head(dataset)
+```
+
+
+```{r}
+
+barplot(table(dataset$OS), main='count of Operating System',ylab = "Count",xlab = "OS", col='blue', breaks=12)
+# Intel GPU are most in dataset.
+```
+
+
+```{r}
+# Relationship between OS and Price
+ggplot(dataset, aes(x = factor(OS), y = Price, fill = Price, colour = Price)) + 
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title = "Operating System vs Price", x = "OS", y = "Price")+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)
+# windows laptop are more expansive compare to other's
+```
+
+
+```{r}
+# Relationship btn Weight and Price
+ggplot(dataset, aes(x = Weight, y = Price)) +
+  geom_point() +
+  labs(x = "Weight", y = "Price", title = "Weight VS Price") +
+  theme(text = element_text(size = 12))+
+  scale_y_continuous(labels = comma) +
+  scale_fill_continuous(labels = scales::comma) +
+   scale_color_continuous(labels = scales::comma)
+# Sightly high Price with more weight laptop but not that much.
+```
+
+
+```{r}
+# Company vs Price box plot
+ggplot(data= dataset, aes(x= Company, y= Price, fill= Company))+
+  geom_boxplot()+
+  ggtitle("Company VS Price")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  scale_y_continuous(labels = comma) +
+  guides(fill = FALSE)
+```
+
+
+```{r}
+# Only numeric column - cor()
+cor(dataset[,unlist(lapply(dataset, is.numeric))])
+```
+
+
+```{r}
+# Only numeric column - cor()
+cor(dataset[,unlist(lapply(dataset, is.numeric))])
+
+# ploting correlation Graph
+numericData <- dataset[,sapply(dataset, is.numeric)] #filter all numeric vars
+numericData <- numericData[, -c(0, 15)] #drop the id column and dependent var
+corMat <- cor(numericData) #correlation matrix
+corrplot(corMat, method = "number", type = "lower")
+# Which one is high correlated.
+highlyCorrelated <- findCorrelation(corMat, cutoff = 0.7) #find highly correlated
+highlyCorCol <- colnames(numericData)[highlyCorrelated]
+highlyCorCol # SSD is highly correlated with price, and HDD have -ve cor relation
+# which means, high HDD tends to low price of laptop.
+```
+
+Heat Map plot
+```{r}
+corrplot(corMat, method = "color", type = "full", tl.cex = 0.8, addCoef.col = "black")
+
+head(dataset)
+```
+
+
+```{r}
+ggplot(dataset, aes(x = Price)) +
+  geom_density(aes(fill = "Density"), alpha = 0.5) +
+  geom_bar(aes(y = ..density.., fill = "Count"), alpha = 0.5, stat = "density") +
+  scale_fill_manual(values = c("Density" = "blue", "Count" = "red")) +
+  labs(title = "Price Distribution", x = "Price", y = "Count") +
+  scale_x_continuous(labels = comma) +
+
+  theme_minimal()
+# As we can see, our targeted column Price is right skewed 
+# By transforming it to normal. Performance of the algorithm 
+# will increase.
+```
+
+
+```{r}
+ggplot(dataset, aes(x = log(Price))) +
+  geom_freqpoly(binwidth = 0.2, size = .8, color = "red") +
+  geom_histogram(binwidth = 0.2, fill = "blue", color = "black") +
+  xlab("Log(Price)") +
+  ylab("Frequency / Count") +
+  ggtitle("Distribution of Logarithm of Price")
+
+```
+
+
+```{r}
+dataset$Price = log(dataset$Price)
+
+```
+
+
+```{r}
+####### Now, We can see our column have some categorical data which must be encoded to numeric
+# before we train our model.
+
+# Specify the categorical columns
+catcols <- c("Company", "TypeName", "OS", "Cpu_brand", "Gpubrand")
+```
+
+
+```{r}
+for (col in catcols) {
+  dataset[[col]] <- as.integer(factor(dataset[[col]]))
+}
+```
+
+
+```{r}
+#### Compute the variance inflation factors (VIF)
+
+vif_values <- vif(lm(Price ~ ., data = dataset))
+```
+
+
+```{r}
+print(vif_values)
+```
+
+
+# Building the model
+
+```{r}
+# Building Model
+library(MASS)
+model = rlm(Price ~ ., data = dataset)
+residuals = residuals(model)
+```
+
+
+```{r}
+mad = median(abs(residuals - median(residuals)))
+threshold = 3 * mad
+outliers = which(abs(residuals) > threshold)
+```
+
+
+```{r}
+data_no_outliers = dataset %>%
+  filter(!row_number() %in% outliers)
+view(data_no_outliers)
+```
+
+Train-Test Split
+
+```{r}
+# Testing and Training set
+
+set.seed(123)
+split = sample.split(data_no_outliers$Price, SplitRatio = .85)
+
+training_set = subset(data_no_outliers, split== TRUE)
+test_set = subset(data_no_outliers, split == FALSE)
+y_test = test_set$Price
+```
+
+
+```{r}
+head(training_set)
+head(test_set)
+head(y_test) # target value - log(Price)
+```
+
+Linear Regression
+
+```{r}
+# 1. Linear Regression
+
+reg_1 = lm(formula = Price~.,
+           data = training_set)
+
+summary(reg_1)
+```
+
+
+```{r}
+summary(reg_1)
+
+#printing adjusted R-squared
+
+summary(reg_1)$adj.r.squared
+
+
+y_pred = predict(reg_1, newdata= test_set)
+```
+
+
+```{r}
+# Comparing Traning Price Prediction with Real Price
+comparison = data.frame(predicted= exp(y_pred), True= exp(y_test))
+print(comparison)
+
+```
+
+
+```{r}
+####### Visualization of Actual price vs Predicted Price
+
+result_test <- data.frame(
+  Actual = exp(y_test),  # exponent the values in log form
+  Predicted = exp(y_pred)  # exponent the values in log form
+)
+```
+
+
+```{r}
+ggplot(result_test, aes(x = 1:nrow(result_test))) +
+  geom_line(aes(y = Actual, color = "Actual"), size = 1) +
+  geom_line(aes(y = Predicted, color = "Predicted"), size = 1) +
+  geom_point(aes(y = Actual), color = "red") +
+  geom_point(aes(y = Predicted), color = "blue") +
+  labs(x = "Data Point", y = "Price") +
+  ggtitle("Actual vs Predicted Prices") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "red", "Predicted" = "blue")) +
+  guides(color = guide_legend(title = "Lines"))
+
+```
+
+
+Support Vector Regression
+
+```{r}
+
+reg_2 = svm(formula= Price~.,
+            data= training_set,
+            type= 'eps-regression',
+            kernel= 'radial',
+            sigma= 0.1,
+            C = 1)
+
+```
+
+
+```{r}
+#Prediction 
+
+y_pred = predict(reg_2, newdata= test_set)
+```
+
+
+```{r}
+# Calculate R-squared score
+r2_score = R2(y_test, y_pred)
+
+# Calculate mean absolute error
+mae = MAE(y_test, y_pred)
+```
+
+
+```{r}
+# Print R-squared score and mean absolute error
+print(paste("R2 score:", r2_score)) # 0.861 = 86% accurarcy
+print(paste("MAE:", mae))
+```
+
+
+```{r}
+# Comparing Traning Price Prediction with Real Price
+comparison = data.frame(predicted= exp(y_pred), True= exp(y_test))
+print(comparison)
+```
+
+
+```{r}
+####### Visualization of Actual price vs Predicted Price
+
+result_test <- data.frame(
+  Actual = exp(y_test),  
+  Predicted = exp(y_pred)  
+)
+
+```
+
+
+```{r}
+ggplot(result_test, aes(x = 1:nrow(result_test))) +
+  geom_line(aes(y = Actual, color = "Actual"), size = 1) +
+  geom_line(aes(y = Predicted, color = "Predicted"), size = 1) +
+  geom_point(aes(y = Actual), color = "red") +
+  geom_point(aes(y = Predicted), color = "blue") +
+  labs(x = "Data Point", y = "Price") +
+  ggtitle("Actual vs Predicted Prices") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "red", "Predicted" = "blue")) +
+  guides(color = guide_legend(title = "Lines"))
+
+## Shows, Better Result than Linear Regression.
+```
+
+
+Random Forrest 
+```{r}
+
+##. Random Forest
+
+set.seed(1234)
+reg_4 = randomForest(
+  x= training_set[-7],
+  y= training_set$Price,
+  ntree= 200,
+  mtry = 4,
+)
+```
+
+
+```{r}
+#prediction
+
+y_pred = predict(reg_4, newdata = test_set)
+```
+
+
+```{r}
+#calculate R2 score
+
+r2_score = R2(y_pred, y_test)
+#calculate MAE score
+
+mae = MAE(y_pred, y_test)
+
+```
+
+
+```{r}
+#print R2 and mae score
+
+print(paste("R2 score:", r2_score)) # 0.988 = 98% accuracy
+print(paste("MAE Score:", mae))
+```
+
+
+```{r}
+# Comparing Traning Price Prediction with Real Price
+comparison = data.frame(predicted <- exp(y_pred), True= exp(y_test))
+print(comparison)
+
+```
+
+
+```{r}
+####### Visualization of Actual price vs Predicted Price
+
+result_test <- data.frame(
+  Actual = exp(y_test),  
+  Predicted = exp(y_pred) 
+)
+```
+
+
+```{r}
+ggplot(result_test, aes(x = 1:nrow(result_test))) +
+  geom_line(aes(y = Actual, color = "Actual"), size = 1) +
+  geom_line(aes(y = Predicted, color = "Predicted"), size = 1) +
+  geom_point(aes(y = Actual), color = "red") +
+  geom_point(aes(y = Predicted), color = "blue") +
+  labs(x = "Data Point", y = "Price") +
+  ggtitle("Actual vs Predicted Prices") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "red", "Predicted" = "blue")) +
+  guides(color = guide_legend(title = "Lines"))
+```
+
+# Takeaway
+
+
+**Random Forest model, predict our target column way far better than previous two model: linear and SVR.**
+
+
+
+
+
+
+
+
+
+
+
+
