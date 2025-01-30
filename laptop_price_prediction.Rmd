@@ -924,7 +924,7 @@ ggplot(result_test, aes(x = 1:nrow(result_test))) +
 # Takeaway
 
 
-**Random Forest model, predict our target column way far better than previous two model: linear and SVR.**
+**Random Forest model has predicted our target column i.e price way better than previous two model: linear and SVR.**
 
 
 
